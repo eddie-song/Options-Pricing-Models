@@ -1,0 +1,146 @@
+import numpy as np
+import yfinance as yf
+import math
+import pandas as pd
+import matplotlib.pyplot as plt
+from datetime import datetime
+from scipy.stats import norm
+
+# select stock
+stock = yf.Ticker("MSFT")
+
+# get stock's historical return and standard deviation
+hist = stock.history(period="1y", interval="1wk")
+hist = hist.iloc[:,:4]
+hist['Return'] = hist['Close'] - hist['Open']
+hist['Pct_Return'] = hist['Return'] / hist['Open']
+historical_return = hist['Pct_Return'].mean()
+historical_return_std = hist['Pct_Return'].std()
+
+# get calls or puts
+call_put = bool(int(input("Enter 0 for calls and 1 for puts: ")))
+
+# retrieve an option
+option_chain = stock.option_chain(stock.options[0])
+if not call_put:
+    options = option_chain.calls
+else:
+    options = option_chain.puts
+option = options.iloc[50,:]
+
+# retrieve option info
+K = option["strike"] # strike price
+r = 0.0551 # risk-free interest rate
+v = option["impliedVolatility"] # volatility
+bid = option["bid"]
+ask = option["ask"]
+
+# retrieve stock info
+S = stock.info['currentPrice'] # underlying asset price
+
+# print stock and option info
+print("Current Stock Price: {}".format(S))
+print("Strike Price: {}".format(K))
+print("Bid: {}".format(bid))
+print("Ask: {}".format(ask))
+
+# set steps
+steps = 1000
+
+# calculate the change in time
+date_format = '%Y-%m-%d' # format the date
+expiration = datetime.strptime(stock.options[1], date_format) # option expiration date
+current = datetime.today() # today's date
+days_change = expiration.date() - current.date() # days until expiration
+T = days_change.days / 365 # time to maturity
+dT = T / steps # change in time
+
+# Black-Scholes Model
+# calculate d1 and d2
+# d1
+d1 = (math.log(S/K) + (r + (v ** 2) * 0.5) * T) / (v * math.sqrt(T))
+# d2
+d2 = d1 - (v * math.sqrt(T))
+
+# calculate the call or put option price
+if not call_put:
+    price = S * norm.cdf(d1) - (K * math.exp(-r * T)) * norm.cdf(d2)
+else:
+    price = K * math.exp(-r * T) * norm.cdf(-d2) - (S * norm.cdf(-d1))
+
+# print results
+print("Black-Scholes projected value: {}".format(round(price, 2)))
+
+# Binomial Tree Model
+# calculate up and down movements
+u = math.exp(v * math.sqrt(dT)) # size of up move
+d = 1 / u # size of down move
+
+# calculate up and down movement probabilities
+pu = (math.exp(r * dT) - d) / (u - d) # probability of an up move
+pd = 1 - pu # probability of a down move
+
+# create the tree with strike prices
+price_tree = np.zeros(steps + 1)
+price_tree[0] = S * d**steps
+for i in range(1, steps + 1):
+    price_tree[i] = price_tree[i - 1] * u / d
+
+option_tree = np.zeros(steps + 1)
+if not call_put:
+    for i in range(steps + 1):
+        option_tree[i] = max(0, price_tree[i] - K)
+else:
+    for i in range(steps + 1):
+        option_tree[i] = max(0, K - price_tree[i])
+
+# work backwards to calculate the binomial values
+for i in range(steps - 1, -1, -1):
+    for j in range(0, i):
+        option_tree[j] = math.exp(-r * dT) * (pu * option_tree[j + 1] +  pd * option_tree[j])
+
+# print the price of the option
+print("Binomial Tree projected value: {}".format(round(option_tree[0], 2)))
+
+# Monte Carlo Simulation
+# set steps and iterations
+n = 1000 # number of steps
+paths = 100 # number of iterations
+
+# use the geometric Brownian motion model
+vdt = (historical_return - (0.5 * historical_return_std ** 2)) * dT # drift term in GBM model
+sidt = historical_return_std * math.sqrt(dT)
+
+# Monte Carlo Simulation to predict stock price
+proj = np.zeros((paths, n + 1))
+for i in range(paths):
+    proj[i] = S
+
+for i in range(paths):
+    for j in range(n):
+        proj[i, j + 1] = proj[i, j] * math.exp(vdt  + sidt * np.random.normal())
+
+plt.figure(figsize=(10,8))
+for i in range(len(proj)):
+    plt.plot(proj[i])
+plt.xlabel("Steps")
+plt.ylabel("Price")
+plt.title("Stock Price Prediction")
+
+# Monte Carlo Simulation to price options
+if not call_put:
+    payoffs = np.maximum(proj[:,-1] - K, 0)
+else:
+    payoffs = np.maximum(K - proj[:,-1], 0)
+option_price = np.mean(payoffs) * math.exp(-r * T)
+print("Monte Carlo projected value: {}".format(round(option_price, 2)))
+
+# print estimated profits
+if not call_put:
+    print("Estimated profit with Black-Scholes Model: {}".format(round(S - K - price, 2)))
+    print("Estimated profit with Binomial Tree Model: {}".format(round(S - K - option_tree[0], 2)))
+    print("Estimated profit with Monte Carlo Simulation: {}".format(round(S - K - option_price, 2)))
+else:
+    print("Estimated profit with Black-Scholes Model: {}".format(round(K - price - S, 2)))
+    print("Estimated profit with Binomial Tree Model: {}".format(round(K - option_tree[0] - S, 2)))
+    print("Estimated profit with Monte Carlo Simulation: {}".format(round(K - option_price - S, 2)))

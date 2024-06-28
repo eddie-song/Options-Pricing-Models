@@ -1,0 +1,67 @@
+import yfinance as yf
+import math
+from datetime import datetime
+import numpy as np
+import time
+
+# select stock
+stock = yf.Ticker("MSFT")
+
+# get calls or puts
+call_put = bool(int(input("Enter 0 for calls and 1 for puts: ")))
+
+# retrieve an option
+option_chain = stock.option_chain(stock.options[0])
+if not call_put:
+    options = option_chain.calls
+else:
+    options = option_chain.puts
+option = options.iloc[50,:]
+
+# retrieve option info
+S = stock.info['currentPrice'] # underlying price
+K = option["strike"] # strike price
+n = 2000 # number of steps
+v = option["impliedVolatility"] # volatility
+r = 0.0551 # risk-free interest rate
+
+# calculate the change in time
+date_format = '%Y-%m-%d' # format the date
+expiration = datetime.strptime(stock.options[1], date_format) # option expiration date
+current = datetime.today() # today's date
+days_change = expiration.date() - current.date() # days until expiration
+dT = (days_change.days / 365) / n # change in time
+
+# start time
+start_time = time.time()
+
+# calculate up and down movements
+u = math.exp(v * math.sqrt(dT)) # size of up move
+d = 1 / u # size of down move
+
+# calculate up and down movement probabilities
+pu = (math.exp(r * dT) - d) / (u - d) # probability of an up move
+pd = 1 - pu # probability of a down move
+
+# create the tree with strike prices
+price_tree = np.zeros(n + 1)
+price_tree[0] = S * d**n
+for i in range(1, n + 1):
+    price_tree[i] = price_tree[i - 1] * u / d
+
+option_tree = np.zeros(n + 1)
+if not call_put:
+    for i in range(n + 1):
+        option_tree[i] = max(0, price_tree[i] - K)
+else:
+    for i in range(n + 1):
+        option_tree[i] = max(0, K - price_tree[i])
+
+# work backwards to calculate the binomial values
+for i in range(n - 1, -1, -1):
+    for j in range(0, i):
+        option_tree[j] = math.exp(-r * dT) * (pu * option_tree[j + 1] +  pd * option_tree[j])
+
+# print the price of the option
+print(option_tree[0])
+print("{} seconds for {} steps".format((time.time() - start_time), n))

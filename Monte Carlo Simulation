@@ -1,0 +1,76 @@
+import numpy as np
+import yfinance as yf
+import math
+import matplotlib.pyplot as plt
+from datetime import datetime
+
+# select stock
+stock = yf.Ticker("MSFT")
+
+# get stock's historical return and standard deviation
+hist = stock.history(period="1y", interval="1wk")
+hist = hist.iloc[:,:4]
+hist['Return'] = hist['Close'] - hist['Open']
+hist['Pct_Return'] = hist['Return'] / hist['Open']
+historical_return = hist['Pct_Return'].mean()
+historical_return_std = hist['Pct_Return'].std()
+
+# get calls or puts
+call_put = bool(int(input("Enter 0 for calls and 1 for puts: ")))
+
+# retrieve an option
+option_chain = stock.option_chain(stock.options[0])
+if not call_put:
+    options = option_chain.calls
+else:
+    options = option_chain.puts
+option = options.iloc[50,:]
+
+print(option)
+
+# retrieve option info
+K = option["strike"] # strike price
+r = 0.0551 # risk-free interest rate
+
+# retrieve stock info
+S = stock.info['currentPrice'] # underlying asset price
+
+# set steps and iterations
+n = 1000 # number of steps
+paths = 100 # number of iterations
+
+# calculate time until maturity
+date_format = '%Y-%m-%d' # format the date
+expiration = datetime.strptime(stock.options[1], date_format) # option expiration date
+current = datetime.today() # today's date
+difference = expiration.date() - current.date() # days until expiration
+T = difference.days / 365 # time to maturity
+dT = T / n # change in time
+
+# use the geometric Brownian motion model
+vdt = (historical_return - (0.5 * historical_return_std ** 2)) * dT # drift term in GBM model
+sidt = historical_return_std * math.sqrt(dT)
+
+# Monte Carlo Simulation to predict stock price
+proj = np.zeros((paths, n + 1))
+for i in range(paths):
+    proj[i] = S
+
+for i in range(paths):
+    for j in range(n):
+        proj[i, j + 1] = proj[i, j] * math.exp(vdt  + sidt * np.random.normal())
+
+plt.figure(figsize=(10,8))
+for i in range(len(proj)):
+    plt.plot(proj[i])
+plt.xlabel("Steps")
+plt.ylabel("Price")
+plt.title("Stock Price Prediction")
+
+# Monte Carlo Simulation to price options
+if not call_put:
+    payoffs = np.maximum(proj[:,-1] - K, 0)
+else:
+    payoffs = np.maximum(K - proj[:,-1], 0)
+option_price = np.mean(payoffs) * math.exp(-r * T)
+print(option_price)
