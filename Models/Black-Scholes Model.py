@@ -9,14 +9,13 @@ from scipy.stats import norm
 stock = yf.Ticker("MSFT")
 
 # get calls or puts
-call_put = bool(int(input("Enter 0 for calls and 1 for puts: ")))
+call_put = 3
+while call_put != 0 and call_put != 1:
+    call_put = int(input("Enter 0 for calls and 1 for puts: "))
 
 # retrieve an option
 option_chain = stock.option_chain(stock.options[0])
-if not call_put:
-    options = option_chain.calls
-else:
-    options = option_chain.puts
+options = option_chain[call_put]
 option = options.iloc[50,:]
 
 # retrieve option info
