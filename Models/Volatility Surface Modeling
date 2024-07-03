@@ -1,0 +1,45 @@
+import numpy as np
+import yfinance as yf
+from datetime import datetime as dt
+import matplotlib.pyplot as plt
+import pandas as pd
+
+# select stock
+stock = yf.Ticker("MSFT")
+
+# get calls or puts
+call_put = 3
+while call_put != 0 and call_put != 1:
+    call_put = int(input("Enter 0 for calls and 1 for puts: "))
+
+options = pd.DataFrame()
+
+for expiration in stock.options:
+    option_chain = stock.option_chain(expiration)[call_put]
+    date_format = '%Y-%m-%d' # format the date
+    option_chain['expiration'] = dt.strptime(expiration, date_format).date() # expiration date
+    difference = dt.strptime(expiration, date_format).date() - dt.today().date()
+    option_chain['maturity'] = difference.days / 365
+    options = pd.concat([options, option_chain])
+
+# volatility surface
+# create the axes of the volatility surface
+vol_surface = pd.pivot_table(options[['maturity', 'strike', 'impliedVolatility']], values = 'impliedVolatility',
+                                                                               index='strike',
+                                                                               columns = 'maturity').dropna()
+
+# plot the volatility surface in a 3d plot
+fig = plt.figure(figsize=(12,8))
+ax = fig.add_subplot(111, projection='3d')
+
+x, y, z = vol_surface.columns.values, vol_surface.index.values, vol_surface.values
+X, Y = np.meshgrid(x, y)
+
+ax.set_xlabel("Time to maturity (% of a year)")
+ax.set_ylabel("Strike price")
+ax.set_zlabel("Implied volatility")
+ax.set_title("Volatility surface")
+
+ax.plot_surface(X, Y, z)
+
+plt.show()
